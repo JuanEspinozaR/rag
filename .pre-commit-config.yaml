@@ -1,0 +1,46 @@
+repos:
+  # General checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=1000"]
+      - id: detect-private-key
+
+  # Secrets detection
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
+
+  # Frontend: ESLint
+  - repo: local
+    hooks:
+      - id: frontend-lint
+        name: Frontend ESLint
+        language: system
+        entry: bash -c "cd frontend && npm run lint --if-present"
+        pass_filenames: false
+        files: ^frontend/src/.*\.(ts|tsx)$
+
+      - id: frontend-type-check
+        name: Frontend TypeScript check
+        language: system
+        entry: bash -c "cd frontend && npm run type-check --if-present"
+        pass_filenames: false
+        files: ^frontend/src/.*\.(ts|tsx)$
+
+  # No hardcoded secrets check
+  - repo: local
+    hooks:
+      - id: no-env-secrets
+        name: Check for hardcoded secrets
+        language: pygrep
+        entry: '(sk-[a-zA-Z0-9]{20,}|pk-lf-[a-zA-Z0-9]{20,})'
+        files: \.(java|ts|tsx|yml|yaml|properties)$
+        exclude: '(\.env\.example|README\.md)'
