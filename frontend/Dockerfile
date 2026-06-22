@@ -2,21 +2,19 @@
 # Frontend Dockerfile - Multi-stage build
 # =============================================================================
 
-# Stage 1: Dependencies
-FROM node:20-alpine AS deps
+# Stage 1: Builder — installs all deps (including devDependencies) and builds
+FROM node:20-alpine AS builder
 
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
+# Copy manifests first for better layer caching
 COPY package.json package-lock.json* ./
-RUN npm ci --only=production --ignore-scripts
 
-# Stage 2: Builder
-FROM node:20-alpine AS builder
+# Install all dependencies (dev + prod) needed for the Next.js build.
+# Prefer ci if a lockfile exists, otherwise fall back to install.
+RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
-WORKDIR /app
-
-COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 # Build arguments for Next.js public env vars
@@ -25,7 +23,7 @@ ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 
 RUN npm run build
 
-# Stage 3: Runner
+# Stage 2: Runner — minimal image with only the standalone output
 FROM node:20-alpine AS runner
 
 WORKDIR /app
