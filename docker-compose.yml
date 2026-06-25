@@ -1,0 +1,138 @@
+version: "3.9"
+
+# =============================================================================
+# RAG Platform — Main Application Stack
+#
+# Prerequisites:
+#   1. Start the Langfuse stack first and obtain API keys:
+#      docker compose -f docker-compose.langfuse.yml up -d
+#   2. Open http://localhost:3001 → Projects → API Keys
+#   3. Copy the keys into your .env file (LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY)
+#
+# Then start this stack:
+#   docker compose up -d
+# =============================================================================
+
+networks:
+  # Internal network for app services
+  rag-network:
+    driver: bridge
+  # Shared network — lets backend reach langfuse-server container by name
+  rag-platform:
+    name: rag-platform
+    driver: bridge
+
+volumes:
+  postgres_data:
+  pgadmin_data:
+
+services:
+
+  # ===========================================================================
+  # PostgreSQL with pgvector
+  # ===========================================================================
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: rag-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ragplatform}
+      POSTGRES_USER: ${POSTGRES_USER:-raguser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ragpassword}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d
+    networks:
+      - rag-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-raguser} -d ${POSTGRES_DB:-ragplatform}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ===========================================================================
+  # PgAdmin — Database GUI
+  # ===========================================================================
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: rag-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@ragplatform.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - rag-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ===========================================================================
+  # Backend — Spring Boot
+  # ===========================================================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: rag-backend
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SERVER_PORT: 8080
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-ragplatform}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-raguser}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-ragpassword}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL:-gpt-4.1-mini}
+      OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-placeholder}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-placeholder}
+      LANGFUSE_HOST: http://langfuse-server:3000
+      PGVECTOR_DIMENSION: ${PGVECTOR_DIMENSION:-1536}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "8080:8080"
+    networks:
+      - rag-network
+      - rag-platform
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:8080/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ===========================================================================
+  # Frontend — Next.js
+  # ===========================================================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: rag-frontend
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+    ports:
+      - "3000:3000"
+    networks:
+      - rag-network
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3000 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
