@@ -9,15 +9,19 @@ import com.ragplatform.domain.model.Document;
 import com.ragplatform.domain.model.KnowledgeSource;
 import com.ragplatform.domain.repository.DocumentRepository;
 import com.ragplatform.domain.repository.KnowledgeSourceRepository;
+import com.ragplatform.domain.enums.SyncStatus;
 import com.ragplatform.infrastructure.rag.DocumentSyncService;
+import com.ragplatform.infrastructure.rag.KnowledgeSourceSyncTrigger;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.util.List;
 import java.util.UUID;
 
 @Slf4j
@@ -29,6 +33,7 @@ public class KnowledgeSourceService implements KnowledgeSourceUseCase {
     private final KnowledgeSourceRepository knowledgeSourceRepository;
     private final DocumentRepository documentRepository;
     private final DocumentSyncService documentSyncService;
+    private final KnowledgeSourceSyncTrigger syncTrigger;
 
     @Override
     public KnowledgeSourceResponse create(KnowledgeSourceRequest request) {
@@ -39,7 +44,18 @@ public class KnowledgeSourceService implements KnowledgeSourceUseCase {
                 .baseUrl(request.getBaseUrl())
                 .config(request.getConfig())
                 .build();
-        return toResponse(knowledgeSourceRepository.save(source));
+        KnowledgeSource saved = knowledgeSourceRepository.save(source);
+
+        // Trigger sync in background after this transaction commits so the entity
+        // is visible to the async thread when it reads from the DB.
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                syncTrigger.trigger(saved);
+            }
+        });
+
+        return toResponse(saved);
     }
 
     @Override
@@ -74,11 +90,20 @@ public class KnowledgeSourceService implements KnowledgeSourceUseCase {
     }
 
     @Override
-    @Async("syncExecutor")
     public void sync(UUID id) {
         KnowledgeSource source = findOrThrow(id);
-        log.info("Starting sync for knowledge source: {} ({})", source.getName(), id);
-        documentSyncService.syncKnowledgeSource(source);
+        log.info("Queuing async sync for knowledge source: {} ({})", source.getName(), id);
+        syncTrigger.trigger(source);
+    }
+
+    @Override
+    public void syncAll() {
+        List<KnowledgeSource> pending = knowledgeSourceRepository.findAll().stream()
+                .filter(s -> s.getSyncStatus() == SyncStatus.PENDING
+                        || s.getSyncStatus() == SyncStatus.FAILED)
+                .toList();
+        log.info("sync-all: triggering async sync for {} sources", pending.size());
+        pending.forEach(syncTrigger::trigger);
     }
 
     @Override

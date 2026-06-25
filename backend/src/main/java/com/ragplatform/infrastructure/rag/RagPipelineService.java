@@ -1,5 +1,6 @@
 package com.ragplatform.infrastructure.rag;
 
+import com.ragplatform.config.AppProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.vectorstore.SearchRequest;
@@ -18,22 +19,26 @@ import java.util.List;
 public class RagPipelineService {
 
     private final VectorStore vectorStore;
+    private final AppProperties appProperties;
 
     public List<String> retrieveRelevantChunks(String query, int topK) {
         if (query == null || query.isBlank()) {
             return List.of();
         }
 
+        double threshold = appProperties.getRag().getSimilarityThreshold();
+
         try {
             SearchRequest searchRequest = SearchRequest.builder()
                     .query(query)
                     .topK(topK)
-                    .similarityThreshold(0.5)
+                    .similarityThreshold(threshold)
                     .build();
 
             List<org.springframework.ai.document.Document> results = vectorStore.similaritySearch(searchRequest);
 
-            log.debug("Retrieved {} chunks for query: {}", results.size(), query.substring(0, Math.min(query.length(), 50)));
+            log.info("RAG retrieved {} chunks (threshold={}) for query: \"{}\"",
+                    results.size(), threshold, query.substring(0, Math.min(query.length(), 60)));
 
             return results.stream()
                     .map(doc -> {

@@ -22,8 +22,9 @@ export const chatService = {
     onToken: (token: string) => void,
     onDone: () => void,
     onError: (err: Error) => void,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    onConversationId?: (id: string) => void
   ) => {
-    streamChatFetch(request, onToken, onDone, onError, signal);
+    streamChatFetch(request, onToken, onDone, onError, signal, onConversationId);
   },
 };

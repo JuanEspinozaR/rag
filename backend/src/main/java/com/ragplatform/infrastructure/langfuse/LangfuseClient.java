@@ -45,9 +45,18 @@ public class LangfuseClient {
                 .uri("/api/public/ingestion")
                 .bodyValue(body)
                 .retrieve()
+                .onStatus(status -> !status.is2xxSuccessful(), response ->
+                        response.bodyToMono(String.class)
+                                .doOnNext(responseBody -> log.warn(
+                                        "Langfuse ingestion rejected — HTTP {}: {}",
+                                        response.statusCode(), responseBody))
+                                .then(Mono.empty()))
                 .bodyToMono(Void.class)
                 .onErrorResume(e -> {
-                    log.warn("Failed to send trace to Langfuse: {}", e.getMessage());
+                    log.warn("Langfuse ingestion error — host={} key={}: {}",
+                            properties.getHost(),
+                            properties.getPublicKey(),
+                            e.getMessage());
                     return Mono.empty();
                 })
                 .subscribe();

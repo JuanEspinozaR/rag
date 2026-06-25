@@ -22,5 +22,7 @@ public interface KnowledgeSourceUseCase {
 
     void sync(UUID id);
 
+    void syncAll();
+
     Page<DocumentResponse> findDocuments(UUID knowledgeSourceId, Pageable pageable);
 }

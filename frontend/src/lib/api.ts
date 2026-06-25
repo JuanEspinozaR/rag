@@ -75,7 +75,8 @@ export function streamChat(
   onToken: (token: string) => void,
   onDone: () => void,
   onError: (err: Error) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onConversationId?: (id: string) => void
 ) {
   const url = `${API_BASE_URL}/api/chat`;
 
@@ -113,8 +114,16 @@ export function streamChat(
 
         for (const line of lines) {
           if (line.startsWith("data:")) {
-            const data = line.slice(5).trim();
-            if (data && data !== "[DONE]") {
+            // Spring WebFlux writes "data:" directly followed by the token content
+            // with NO separator space — the token's own leading space must be kept.
+            const data = line.slice(5);
+
+            if (!data || data === "[DONE]") continue;
+
+            // First token carries the conversation ID as a metadata marker
+            if (data.startsWith("__CONV_ID__:")) {
+              onConversationId?.(data.slice("__CONV_ID__:".length));
+            } else {
               onToken(data);
             }
           }

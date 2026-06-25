@@ -61,7 +61,7 @@ spring:
     # PgVector Store
     vectorstore:
       pgvector:
-        index-type: ivfflat
+        index-type: hnsw
         distance-type: cosine_distance
         dimensions: ${PGVECTOR_DIMENSION:1536}
         initialize-schema: false
@@ -121,7 +121,7 @@ langfuse:
 app:
   rag:
     top-k: 5
-    similarity-threshold: 0.7
+    similarity-threshold: 0.3
     max-context-length: 8000
   chunking:
     chunk-size: 512

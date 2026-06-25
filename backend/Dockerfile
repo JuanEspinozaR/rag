@@ -9,7 +9,7 @@ WORKDIR /app
 
 # Cache dependencies separately from source code
 COPY pom.xml .
-RUN mvn dependency:go-offline -B --no-transfer-progress
+RUN mvn dependency:resolve dependency:resolve-plugins -B --no-transfer-progress
 
 # Copy source and build
 COPY src ./src

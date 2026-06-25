@@ -82,14 +82,17 @@ export function useStreamingChat() {
         () => {
           commitStreamedMessage();
           queryClient.invalidateQueries({ queryKey: CONVERSATIONS_KEY });
-          // Update conversation ID from response if new conversation
-          // The response headers or first token would include conversation ID in a real implementation
         },
         (err) => {
           setIsStreaming(false);
           toast.error(`Chat error: ${err.message}`);
         },
-        abortRef.current.signal
+        abortRef.current.signal,
+        (convId) => {
+          // Persist the server-assigned conversation ID so follow-up messages
+          // continue the same conversation instead of creating a new one.
+          setConversationId(convId);
+        }
       );
     },
     [

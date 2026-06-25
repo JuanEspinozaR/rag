@@ -87,16 +87,18 @@ types/                  ← TypeScript type definitions
 
 ## 3. Tech Stack
 
-| Layer       | Technology                                                                 |
-|-------------|---------------------------------------------------------------------------|
-| Frontend    | Next.js 14, React 18, TypeScript, TailwindCSS, shadcn/ui, Zustand        |
-| Backend     | Spring Boot 3.3, Java 21, Spring AI, Spring WebFlux, Spring Data JPA     |
-| Database    | PostgreSQL 16 + pgvector extension                                         |
-| Migrations  | Flyway                                                                     |
-| LLM         | OpenAI (gpt-4.1-mini + text-embedding-3-small)                            |
-| Tracing     | Langfuse (self-hosted)                                                     |
-| Streaming   | Server-Sent Events (SSE)                                                   |
-| Build       | Docker Compose, Maven, npm                                                 |
+
+| Layer      | Technology                                                           |
+| ---------- | -------------------------------------------------------------------- |
+| Frontend   | Next.js 14, React 18, TypeScript, TailwindCSS, shadcn/ui, Zustand    |
+| Backend    | Spring Boot 3.3, Java 21, Spring AI, Spring WebFlux, Spring Data JPA |
+| Database   | PostgreSQL 16 + pgvector extension                                   |
+| Migrations | Flyway                                                               |
+| LLM        | OpenAI (gpt-4.1-mini + text-embedding-3-small)                       |
+| Tracing    | Langfuse (self-hosted)                                               |
+| Streaming  | Server-Sent Events (SSE)                                             |
+| Build      | Docker Compose, Maven, npm                                           |
+
 
 ---
 
@@ -112,6 +114,10 @@ types/                  ← TypeScript type definitions
 
 ### Quick Start (Docker Compose)
 
+The platform is split into **two independent stacks** so that Langfuse can start first and provide API keys before the main app boots.
+
+#### Step 1 — Start the Langfuse observability stack
+
 ```bash
 # 1. Clone the repository
 git clone <repo-url>
@@ -119,76 +125,111 @@ cd rag-platform
 
 # 2. Set up environment
 cp .env.example .env
-# Edit .env and fill in your OPENAI_API_KEY and other credentials
 
-# 3. Start everything
-docker compose up --build
-
-# Or use the Makefile
-make up-logs
+# 3. Start Langfuse (postgres, redis, clickhouse, minio, langfuse-server, langfuse-worker)
+docker compose -f docker-compose.langfuse.yml up -d
 ```
 
-This starts: frontend, backend, postgres, pgadmin, langfuse-server, langfuse-worker, redis, clickhouse.
+Wait ~2 minutes for all services to become healthy, then:
+
+1. Open **[http://localhost:3001](http://localhost:3001)**
+2. Log in: `admin@langfuse.com` / `langfusepassword`
+3. Go to **Settings → API Keys → Create new key**
+4. Copy the **Public Key** and **Secret Key** into `.env`:
+
+```env
+LANGFUSE_PUBLIC_KEY=pk-lf-xxxxxxxxxxxxxxxx
+LANGFUSE_SECRET_KEY=sk-lf-xxxxxxxxxxxxxxxx
+```
+
+#### Step 2 — Start the main application stack
+
+```bash
+# Fill in OPENAI_API_KEY and the Langfuse keys from Step 1, then:
+docker compose up --build
+```
+
+This starts: `frontend (:3000)`, `backend (:8080)`, `postgres (:5432)`, `pgadmin (:5050)`.
+
+The backend will automatically connect to the already-running `langfuse-server` container through the shared `rag-platform` Docker network.
+
+#### Stopping everything
+
+```bash
+docker compose down                                    # stop main app
+docker compose -f docker-compose.langfuse.yml down    # stop Langfuse
+```
 
 ---
 
 ## 5. Environment Variables
 
-All configuration is environment-variable driven. See [`.env.example`](.env.example) for the full list.
+All configuration is environment-variable driven. See `[.env.example](.env.example)` for the full list.
 
-| Variable | Description | Required |
-|---|---|---|
-| `OPENAI_API_KEY` | Your OpenAI API key | ✅ |
-| `OPENAI_CHAT_MODEL` | Chat model (default: `gpt-4.1-mini`) | ✅ |
-| `OPENAI_EMBEDDING_MODEL` | Embedding model (default: `text-embedding-3-small`) | ✅ |
-| `POSTGRES_DB` | PostgreSQL database name | ✅ |
-| `POSTGRES_USER` | PostgreSQL username | ✅ |
-| `POSTGRES_PASSWORD` | PostgreSQL password | ✅ |
-| `SPRING_DATASOURCE_URL` | Full JDBC URL for backend | ✅ |
-| `LANGFUSE_PUBLIC_KEY` | Langfuse project public key | ✅ |
-| `LANGFUSE_SECRET_KEY` | Langfuse project secret key | ✅ |
-| `LANGFUSE_HOST` | Langfuse server URL | ✅ |
-| `NEXT_PUBLIC_API_URL` | Backend API URL for frontend | ✅ |
-| `PGADMIN_DEFAULT_EMAIL` | PgAdmin login email | Optional |
-| `PGADMIN_DEFAULT_PASSWORD` | PgAdmin login password | Optional |
+
+| Variable                   | Description                                         | Required |
+| -------------------------- | --------------------------------------------------- | -------- |
+| `OPENAI_API_KEY`           | Your OpenAI API key                                 | ✅        |
+| `OPENAI_CHAT_MODEL`        | Chat model (default: `gpt-4.1-mini`)                | ✅        |
+| `OPENAI_EMBEDDING_MODEL`   | Embedding model (default: `text-embedding-3-small`) | ✅        |
+| `POSTGRES_DB`              | PostgreSQL database name                            | ✅        |
+| `POSTGRES_USER`            | PostgreSQL username                                 | ✅        |
+| `POSTGRES_PASSWORD`        | PostgreSQL password                                 | ✅        |
+| `SPRING_DATASOURCE_URL`    | Full JDBC URL for backend                           | ✅        |
+| `LANGFUSE_PUBLIC_KEY`      | Langfuse project public key                         | ✅        |
+| `LANGFUSE_SECRET_KEY`      | Langfuse project secret key                         | ✅        |
+| `LANGFUSE_HOST`            | Langfuse server URL                                 | ✅        |
+| `NEXT_PUBLIC_API_URL`      | Backend API URL for frontend                        | ✅        |
+| `PGADMIN_DEFAULT_EMAIL`    | PgAdmin login email                                 | Optional |
+| `PGADMIN_DEFAULT_PASSWORD` | PgAdmin login password                              | Optional |
+
 
 ---
 
 ## 6. Docker Compose Setup
 
-The `docker-compose.yml` defines the full service graph:
+The platform uses **two compose files** to decouple the LLM observability stack from the main application.
 
-```yaml
-services:
-  frontend     → Next.js app on :3000
-  backend      → Spring Boot API on :8080
-  postgres     → PostgreSQL + pgvector on :5432
-  pgadmin      → Database GUI on :5050
-  langfuse-server → Langfuse web UI/API on :3001
-  langfuse-worker → Background job processor
-  redis        → Cache for Langfuse on :6379
-  clickhouse   → Analytics store for Langfuse on :8123
-```
+### `docker-compose.yml` — Main application
 
-### Single command startup
 
-```bash
-docker compose up --build
-```
+| Service    | Port | Description           |
+| ---------- | ---- | --------------------- |
+| `frontend` | 3000 | Next.js UI            |
+| `backend`  | 8080 | Spring Boot API       |
+| `postgres` | 5432 | PostgreSQL + pgvector |
+| `pgadmin`  | 5050 | Database GUI          |
 
-### Environment Variable Passing
 
-Docker Compose reads from `.env` automatically. You can override per-service in `docker-compose.yml` under `environment:`.
+### `docker-compose.langfuse.yml` — Observability stack
+
+
+| Service               | Port      | Description                 |
+| --------------------- | --------- | --------------------------- |
+| `langfuse-server`     | 3001      | Langfuse Web UI + API       |
+| `langfuse-worker`     | —         | Background ingestion jobs   |
+| `langfuse-postgres`   | 5433      | Dedicated Langfuse database |
+| `langfuse-redis`      | —         | Internal queue/cache        |
+| `langfuse-clickhouse` | —         | OLAP trace analytics        |
+| `langfuse-minio`      | 9090/9091 | S3 blob store (MinIO)       |
+
+
+### Shared network
+
+Both stacks join a Docker network named `rag-platform`. This allows the `rag-backend` container to reach `langfuse-server` by container name (`http://langfuse-server:3000`) without exposing Langfuse's internal port to the host.
 
 ### Volumes
 
-| Volume | Purpose |
-|---|---|
-| `postgres_data` | Persistent PostgreSQL data |
-| `pgadmin_data` | PgAdmin configuration |
-| `redis_data` | Redis persistence |
-| `clickhouse_data` | ClickHouse analytics data |
-| `langfuse_data` | Langfuse uploaded files |
+
+| Volume                     | Stack    | Purpose              |
+| -------------------------- | -------- | -------------------- |
+| `postgres_data`            | Main     | PostgreSQL data      |
+| `pgadmin_data`             | Main     | PgAdmin config       |
+| `langfuse_postgres_data`   | Langfuse | Langfuse database    |
+| `langfuse_redis_data`      | Langfuse | Redis persistence    |
+| `langfuse_clickhouse_data` | Langfuse | ClickHouse analytics |
+| `langfuse_minio_data`      | Langfuse | Blob storage         |
+
 
 ---
 
@@ -215,14 +256,16 @@ java -jar target/rag-platform-backend.jar
 
 ### Key endpoints
 
-| Endpoint | Description |
-|---|---|
-| `GET /actuator/health` | Health check |
-| `GET /swagger-ui.html` | Swagger UI |
-| `POST /api/knowledge-sources` | Create knowledge source |
-| `POST /api/knowledge-sources/{id}/sync` | Sync a source |
-| `POST /api/chat` | Chat with streaming |
-| `GET /api/chat/conversations` | List conversations |
+
+| Endpoint                                | Description             |
+| --------------------------------------- | ----------------------- |
+| `GET /actuator/health`                  | Health check            |
+| `GET /swagger-ui.html`                  | Swagger UI              |
+| `POST /api/knowledge-sources`           | Create knowledge source |
+| `POST /api/knowledge-sources/{id}/sync` | Sync a source           |
+| `POST /api/chat`                        | Chat with streaming     |
+| `GET /api/chat/conversations`           | List conversations      |
+
 
 ---
 
@@ -256,18 +299,21 @@ PostgreSQL 16 with the pgvector extension is used for both relational data and v
 
 ### Schema overview
 
-| Table | Purpose |
-|---|---|
-| `knowledge_sources` | Data source configurations |
-| `documents` | Fetched and parsed documents |
-| `document_chunks` | Chunked document content |
-| `vector_store` | Embeddings (managed by Spring AI) |
-| `conversations` | Chat conversation metadata |
-| `messages` | Individual chat messages |
+
+| Table               | Purpose                           |
+| ------------------- | --------------------------------- |
+| `knowledge_sources` | Data source configurations        |
+| `documents`         | Fetched and parsed documents      |
+| `document_chunks`   | Chunked document content          |
+| `vector_store`      | Embeddings (managed by Spring AI) |
+| `conversations`     | Chat conversation metadata        |
+| `messages`          | Individual chat messages          |
+
 
 ### Migrations
 
 Flyway runs automatically on backend startup. Migration files are in:
+
 ```
 backend/src/main/resources/db/migration/
   V1__init.sql         ← Schema creation
@@ -286,28 +332,49 @@ docker compose exec postgres psql -U raguser -d ragplatform
 
 ## 10. Langfuse Setup
 
-Langfuse is self-hosted and provides LLM observability.
+Langfuse is self-hosted and provides LLM observability. It runs as a **separate stack** that must be started before the main application.
+
+### Start the Langfuse stack
+
+```bash
+docker compose -f docker-compose.langfuse.yml up -d
+```
 
 ### Access
 
-- URL: [http://localhost:3001](http://localhost:3001)
-- Default credentials: set via `LANGFUSE_INIT_USER_EMAIL` and `LANGFUSE_INIT_USER_PASSWORD`
+
+|          |                                                |
+| -------- | ---------------------------------------------- |
+| URL      | [http://localhost:3001](http://localhost:3001) |
+| Email    | `admin@langfuse.com`                           |
+| Password | `langfusepassword`                             |
+
 
 ### Getting API Keys
 
-1. Log in to Langfuse at http://localhost:3001
-2. Navigate to **Settings → API Keys**
-3. Create a new key pair
-4. Copy the **Public Key** and **Secret Key** to your `.env` file:
-   ```
+1. Log in at [http://localhost:3001](http://localhost:3001)
+2. Navigate to **Settings → API Keys → Create new key**
+3. Copy the **Public Key** and **Secret Key** into `.env`:
+  ```env
    LANGFUSE_PUBLIC_KEY=pk-lf-...
    LANGFUSE_SECRET_KEY=sk-lf-...
-   ```
-5. Restart the backend service
+  ```
+4. Start (or restart) the main app stack: `docker compose up -d`
+
+### MinIO Console (blob storage)
+
+
+|          |                                                |
+| -------- | ---------------------------------------------- |
+| URL      | [http://localhost:9091](http://localhost:9091) |
+| User     | `minio`                                        |
+| Password | `miniosecret`                                  |
+
 
 ### What is traced
 
 Every chat request traces:
+
 - User prompt
 - Retrieved document chunks (context)
 - Augmented prompt sent to OpenAI
@@ -326,11 +393,11 @@ Every chat request traces:
 1. Right-click **Servers → Register → Server**
 2. Name: `RAG Platform`
 3. Connection tab:
-   - Host: `postgres`
-   - Port: `5432`
-   - Database: `ragplatform`
-   - Username: `raguser`
-   - Password: `ragpassword`
+  - Host: `postgres`
+  - Port: `5432`
+  - Database: `ragplatform`
+  - Username: `raguser`
+  - Password: `ragpassword`
 
 ---
 
@@ -360,14 +427,16 @@ SyncStatus updated to COMPLETED
 
 ### Supported source types
 
-| Type | Description |
-|---|---|
-| `WEBSITE_URL` | Fetches and parses an HTML webpage |
-| `SITEMAP` | Parses a sitemap.xml and syncs all listed URLs |
-| `PDF_URL` | Downloads and extracts text from a PDF |
-| `MARKDOWN_URL` | Fetches a raw Markdown file |
-| `RAW_TEXT` | Stores text typed directly into the form |
-| `GITHUB_REPO` | Future: sync a GitHub repository |
+
+| Type           | Description                                    |
+| -------------- | ---------------------------------------------- |
+| `WEBSITE_URL`  | Fetches and parses an HTML webpage             |
+| `SITEMAP`      | Parses a sitemap.xml and syncs all listed URLs |
+| `PDF_URL`      | Downloads and extracts text from a PDF         |
+| `MARKDOWN_URL` | Fetches a raw Markdown file                    |
+| `RAW_TEXT`     | Stores text typed directly into the form       |
+| `GITHUB_REPO`  | Future: sync a GitHub repository               |
+
 
 ---
 
@@ -404,23 +473,25 @@ Full response + user message persisted to DB
 
 ## 14. Default URLs
 
-| Service | URL | Notes |
-|---|---|---|
-| Frontend | http://localhost:3000 | Next.js app |
-| Backend API | http://localhost:8080 | Spring Boot |
-| Swagger UI | http://localhost:8080/swagger-ui.html | API docs |
-| Health Check | http://localhost:8080/actuator/health | Service health |
-| PgAdmin | http://localhost:5050 | DB management |
-| Langfuse | http://localhost:3001 | LLM tracing |
-| ClickHouse | http://localhost:8123 | Analytics |
+
+| Service      | URL                                                                            | Notes          |
+| ------------ | ------------------------------------------------------------------------------ | -------------- |
+| Frontend     | [http://localhost:3000](http://localhost:3000)                                 | Next.js app    |
+| Backend API  | [http://localhost:8080](http://localhost:8080)                                 | Spring Boot    |
+| Swagger UI   | [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html) | API docs       |
+| Health Check | [http://localhost:8080/actuator/health](http://localhost:8080/actuator/health) | Service health |
+| PgAdmin      | [http://localhost:5050](http://localhost:5050)                                 | DB management  |
+| Langfuse     | [http://localhost:3001](http://localhost:3001)                                 | LLM tracing    |
+| ClickHouse   | [http://localhost:8123](http://localhost:8123)                                 | Analytics      |
+
 
 ---
 
 ## 15. API Documentation
 
-Swagger UI is available at http://localhost:8080/swagger-ui.html when the backend is running.
+Swagger UI is available at [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html) when the backend is running.
 
-OpenAPI JSON spec: http://localhost:8080/v3/api-docs
+OpenAPI JSON spec: [http://localhost:8080/v3/api-docs](http://localhost:8080/v3/api-docs)
 
 ---
 
@@ -433,6 +504,7 @@ docker compose logs backend
 ```
 
 Common causes:
+
 - PostgreSQL not ready yet — backend has a healthcheck dependency, retry with `make restart-backend`
 - Missing `OPENAI_API_KEY` — set it in `.env`
 - Port 8080 already in use — change `SERVER_PORT` in `.env`
@@ -452,9 +524,17 @@ Check `NEXT_PUBLIC_API_URL` in `.env`. For Docker, use `http://backend:8080`. Fo
 
 ### Langfuse not receiving traces
 
-1. Verify `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are set correctly
-2. Check `LANGFUSE_HOST` points to the running Langfuse server
-3. Check backend logs for Langfuse client errors
+1. Make sure the Langfuse stack is running: `docker compose -f docker-compose.langfuse.yml ps`
+2. Verify `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` in `.env` match the keys in the Langfuse UI
+3. Check backend logs: `docker compose logs backend | grep -i langfuse`
+
+### Backend can't connect to Langfuse
+
+The backend reaches Langfuse via the shared `rag-platform` Docker network using the container name `langfuse-server`. If the Langfuse stack was started after the main app, restart the backend:
+
+```bash
+docker compose restart backend
+```
 
 ### Streaming chat not working
 
@@ -469,6 +549,13 @@ Increase Docker Desktop memory to 4GB+ in Settings → Resources.
 ### Full reset
 
 ```bash
-make down-clean  # removes all containers + volumes
-make up-logs     # starts fresh
+# Stop and remove all containers + volumes
+docker compose down -v
+docker compose -f docker-compose.langfuse.yml down -v
+
+# Start fresh
+docker compose -f docker-compose.langfuse.yml up -d
+# (wait ~2 min, get API keys, update .env)
+docker compose up --build
 ```
+

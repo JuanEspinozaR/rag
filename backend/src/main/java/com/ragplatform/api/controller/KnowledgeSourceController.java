@@ -79,6 +79,15 @@ public class KnowledgeSourceController {
                 .body(ApiResponse.ok(null, "Sync started in background"));
     }
 
+    @PostMapping("/sync-all")
+    @Operation(summary = "Trigger synchronization for all PENDING or FAILED knowledge sources")
+    public ResponseEntity<ApiResponse<Void>> syncAll() {
+        log.info("Triggering sync-all");
+        knowledgeSourceUseCase.syncAll();
+        return ResponseEntity.accepted()
+                .body(ApiResponse.ok(null, "Sync-all started in background"));
+    }
+
     @GetMapping("/{id}/documents")
     @Operation(summary = "List documents for a knowledge source")
     public ResponseEntity<ApiResponse<PageResponse<DocumentResponse>>> findDocuments(

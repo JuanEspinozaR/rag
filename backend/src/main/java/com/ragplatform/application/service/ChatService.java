@@ -31,6 +31,9 @@ import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+// __CONV_ID__ prefix is parsed by the frontend to track the active conversation.
+// It is emitted as the very first SSE token before any AI text.
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -72,7 +75,7 @@ public class ChatService implements ChatUseCase {
 
         StringBuilder responseBuilder = new StringBuilder();
 
-        return chatClient.prompt()
+        Flux<String> tokenStream = chatClient.prompt()
                 .messages(messages)
                 .stream()
                 .content()
@@ -95,6 +98,13 @@ public class ChatService implements ChatUseCase {
                     log.error("Error in chat streaming for conversation: {}", conversationId, e);
                     langfuseTracingService.traceErrorAsync(traceId, e.getMessage());
                 });
+
+        // Prepend conversation ID marker so the frontend can persist the ID
+        // and continue the same conversation on follow-up messages.
+        return Flux.concat(
+                Flux.just("__CONV_ID__:" + conversationId),
+                tokenStream
+        );
     }
 
     @Override

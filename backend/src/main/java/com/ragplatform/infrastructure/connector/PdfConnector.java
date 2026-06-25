@@ -3,12 +3,12 @@ package com.ragplatform.infrastructure.connector;
 import com.ragplatform.domain.enums.SourceType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
-import java.io.ByteArrayInputStream;
 import java.util.List;
 import java.util.Map;
 
@@ -24,13 +24,28 @@ public class PdfConnector implements DataSourceConnector {
         return SourceType.PDF_URL;
     }
 
+    private String normalizeUrl(String url) {
+        // Convert GitHub blob viewer URL to raw download URL:
+        // https://github.com/{user}/{repo}/blob/{ref}/{path}
+        // → https://raw.githubusercontent.com/{user}/{repo}/{ref}/{path}
+        if (url.contains("github.com") && url.contains("/blob/")) {
+            return url.replace("https://github.com/", "https://raw.githubusercontent.com/")
+                      .replace("/blob/", "/");
+        }
+        return url;
+    }
+
     @Override
     public List<FetchedDocument> fetch(String url, Map<String, Object> config) {
-        log.info("Fetching PDF from URL: {}", url);
+        String resolvedUrl = normalizeUrl(url);
+        if (!resolvedUrl.equals(url)) {
+            log.info("GitHub blob URL normalized to raw URL: {}", resolvedUrl);
+        }
+        log.info("Fetching PDF from URL: {}", resolvedUrl);
         try {
             byte[] pdfBytes = webClientBuilder.build()
                     .get()
-                    .uri(url)
+                    .uri(resolvedUrl)
                     .header("User-Agent", "RAGPlatformBot/1.0")
                     .retrieve()
                     .bodyToMono(byte[].class)
@@ -41,7 +56,7 @@ public class PdfConnector implements DataSourceConnector {
                 return List.of();
             }
 
-            try (PDDocument document = PDDocument.load(new ByteArrayInputStream(pdfBytes))) {
+            try (PDDocument document = Loader.loadPDF(pdfBytes)) {
                 PDFTextStripper stripper = new PDFTextStripper();
                 String text = stripper.getText(document);
 

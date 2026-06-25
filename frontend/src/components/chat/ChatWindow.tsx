@@ -6,7 +6,7 @@ import { MessageBubble } from "./MessageBubble";
 import { PromptInput } from "./PromptInput";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useChatStore } from "@/store/chat.store";
-import { useStreamingChat } from "@/hooks/useChat";
+import { useStreamingChat, useConversation } from "@/hooks/useChat";
 
 interface ChatWindowProps {
   conversationId?: string;
@@ -24,12 +24,39 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
 
   const { sendMessage, stopStreaming } = useStreamingChat();
 
+  // Fetch existing conversation data when navigating to a saved conversation.
+  const { data: convData } = useConversation(conversationId ?? null);
+
+  // Track which conversation we've already hydrated into the store so we
+  // don't overwrite in-progress streaming with a stale server snapshot.
+  const loadedConvRef = useRef<string | null>(null);
+
   useEffect(() => {
     setConversationId(conversationId ?? null);
     if (!conversationId) {
       setMessages([]);
+      loadedConvRef.current = null;
     }
   }, [conversationId, setConversationId, setMessages]);
+
+  // Populate the store with historical messages once per conversation navigation.
+  useEffect(() => {
+    if (
+      conversationId &&
+      convData?.messages &&
+      loadedConvRef.current !== conversationId &&
+      !isStreaming
+    ) {
+      loadedConvRef.current = conversationId;
+      setMessages(
+        convData.messages.map((m) => ({
+          role: m.role.toLowerCase() as "user" | "assistant",
+          content: m.content,
+          createdAt: m.createdAt,
+        }))
+      );
+    }
+  }, [conversationId, convData, isStreaming, setMessages]);
 
   // Auto-scroll to bottom
   useEffect(() => {

@@ -54,11 +54,7 @@ public class DocumentSyncService {
 
             knowledgeSourceRepository.updateSyncStatus(source.getId(), SyncStatus.COMPLETED);
             knowledgeSourceRepository.updateDocumentCount(source.getId(), processed);
-
-            // Update lastSyncedAt
-            KnowledgeSource updatedSource = knowledgeSourceRepository.findById(source.getId()).orElseThrow();
-            updatedSource.setLastSyncedAt(OffsetDateTime.now());
-            knowledgeSourceRepository.save(updatedSource);
+            knowledgeSourceRepository.updateLastSyncedAt(source.getId(), OffsetDateTime.now());
 
             log.info("Sync completed for source: {} - {} documents processed", source.getName(), processed);
 

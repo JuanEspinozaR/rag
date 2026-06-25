@@ -165,9 +165,7 @@ export function SourceFormDialog({
 
           {needsUrl && (
             <div className="space-y-2">
-              <Label htmlFor="baseUrl">
-                {selectedType === "RAW_TEXT" ? "Content" : "URL *"}
-              </Label>
+              <Label htmlFor="baseUrl">URL *</Label>
               <Input
                 id="baseUrl"
                 placeholder={
